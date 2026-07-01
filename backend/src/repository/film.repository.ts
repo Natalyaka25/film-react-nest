@@ -64,10 +64,7 @@ export class FilmRepository {
   ) {}
 
   async getFilms(): Promise<FilmDto[]> {
-    const films = await this.filmModel
-      .find({}, { _id: 0, schedule: 0 })
-      .lean()
-      .exec();
+    const films = await this.filmModel.find({}, { _id: 0 }).lean().exec();
     return films.map(this.toFilmDto);
   }
 
@@ -126,6 +123,7 @@ export class FilmRepository {
     title: film.title,
     about: film.about,
     description: film.description,
+    schedule: film.schedule.map(this.toScheduleDto),
   });
 
   private toScheduleDto = (schedule: ScheduleSubdocument): ScheduleDto => ({

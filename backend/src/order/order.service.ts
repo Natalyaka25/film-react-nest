@@ -5,13 +5,16 @@ import {
 } from '@nestjs/common';
 import { ApiListDto } from '../common/dto/api-list.dto';
 import { FilmRepository } from '../repository/film.repository';
-import { CreateOrderDto, TicketDto } from './dto/order.dto';
+import { randomUUID } from 'node:crypto';
+import { CreateOrderDto, TicketResponseDto } from './dto/order.dto';
 
 @Injectable()
 export class OrderService {
   constructor(private readonly filmRepository: FilmRepository) {}
 
-  async createOrder(payload: CreateOrderDto): Promise<ApiListDto<TicketDto>> {
+  async createOrder(
+    payload: CreateOrderDto,
+  ): Promise<ApiListDto<TicketResponseDto>> {
     const groupedBySession = new Map<string, string[]>();
     const seatsInRequest = new Set<string>();
 
@@ -59,7 +62,10 @@ export class OrderService {
 
     return {
       total: payload.tickets.length,
-      items: payload.tickets,
+      items: payload.tickets.map((ticket) => ({
+        ...ticket,
+        id: randomUUID(),
+      })),
     };
   }
 }
