@@ -129,7 +129,7 @@ export class FilmRepository {
   private toScheduleDto = (schedule: ScheduleSubdocument): ScheduleDto => ({
     id: schedule.id,
     daytime: new Date(schedule.daytime).toISOString(),
-    hall: String(schedule.hall),
+    hall: schedule.hall,
     rows: schedule.rows,
     seats: schedule.seats,
     price: schedule.price,
