@@ -34,30 +34,19 @@ export class OrderService {
 
     for (const [sessionKey, requestedSeats] of groupedBySession) {
       const [filmId, sessionId] = sessionKey.split('|');
-      const schedule = await this.filmRepository.getScheduleByFilmAndSession(
-        filmId,
-        sessionId,
-      );
-
-      if (!schedule) {
-        throw new NotFoundException('Film session not found');
-      }
-
-      const hasTakenSeat = requestedSeats.some((seat) =>
-        schedule.taken.includes(seat),
-      );
-      if (hasTakenSeat) {
-        throw new ConflictException('Seat already taken');
-      }
-    }
-
-    for (const [sessionKey, requestedSeats] of groupedBySession) {
-      const [filmId, sessionId] = sessionKey.split('|');
-      await this.filmRepository.addTakenSeats(
+      const result = await this.filmRepository.reserveTakenSeats(
         filmId,
         sessionId,
         requestedSeats,
       );
+
+      if (result === 'not_found') {
+        throw new NotFoundException('Film session not found');
+      }
+
+      if (result === 'conflict') {
+        throw new ConflictException('Seat already taken');
+      }
     }
 
     return {

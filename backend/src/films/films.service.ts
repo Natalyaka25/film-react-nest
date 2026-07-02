@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { ApiListDto } from '../common/dto/api-list.dto';
 import { FilmDto, ScheduleDto } from './dto/films.dto';
 import { FilmRepository } from '../repository/film.repository';
@@ -16,10 +16,15 @@ export class FilmsService {
   }
 
   async getFilmSchedule(id: string): Promise<ApiListDto<ScheduleDto>> {
-    const items = await this.filmRepository.getScheduleByFilmId(id);
+    const schedule = await this.filmRepository.getScheduleByFilmId(id);
+
+    if (schedule === null) {
+      throw new NotFoundException(`Film with id ${id} not found`);
+    }
+
     return {
-      total: items.length,
-      items,
+      total: schedule.length,
+      items: schedule,
     };
   }
 }

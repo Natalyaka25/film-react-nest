@@ -68,14 +68,14 @@ export class FilmRepository {
     return films.map(this.toFilmDto);
   }
 
-  async getScheduleByFilmId(filmId: string): Promise<ScheduleDto[]> {
+  async getScheduleByFilmId(filmId: string): Promise<ScheduleDto[] | null> {
     const film = await this.filmModel
       .findOne({ id: filmId }, { _id: 0, schedule: 1 })
       .lean()
       .exec();
 
     if (!film) {
-      return [];
+      return null;
     }
 
     return film.schedule.map(this.toScheduleDto);
@@ -100,17 +100,35 @@ export class FilmRepository {
     return this.toScheduleDto(film.schedule[0]);
   }
 
-  async addTakenSeats(
+  async reserveTakenSeats(
     filmId: string,
     sessionId: string,
     takenSeats: string[],
-  ): Promise<void> {
-    await this.filmModel
+  ): Promise<'reserved' | 'not_found' | 'conflict'> {
+    const sessionExists = await this.filmModel
+      .exists({ id: filmId, 'schedule.id': sessionId })
+      .exec();
+
+    if (!sessionExists) {
+      return 'not_found';
+    }
+
+    const result = await this.filmModel
       .updateOne(
-        { id: filmId, 'schedule.id': sessionId },
+        {
+          id: filmId,
+          schedule: {
+            $elemMatch: {
+              id: sessionId,
+              taken: { $nin: takenSeats },
+            },
+          },
+        },
         { $addToSet: { 'schedule.$.taken': { $each: takenSeats } } },
       )
       .exec();
+
+    return result.modifiedCount > 0 ? 'reserved' : 'conflict';
   }
 
   private toFilmDto = (film: FilmDocument): FilmDto => ({
