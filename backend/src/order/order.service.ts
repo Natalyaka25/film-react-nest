@@ -1,16 +1,23 @@
 import {
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { ApiListDto } from '../common/dto/api-list.dto';
-import { FilmRepository } from '../repository/film.repository';
+import {
+  FILMS_REPOSITORY,
+  FilmsRepository,
+} from '../repository/films.repository';
 import { randomUUID } from 'node:crypto';
 import { CreateOrderDto, TicketResponseDto } from './dto/order.dto';
 
 @Injectable()
 export class OrderService {
-  constructor(private readonly filmRepository: FilmRepository) {}
+  constructor(
+    @Inject(FILMS_REPOSITORY)
+    private readonly filmsRepository: FilmsRepository,
+  ) {}
 
   async createOrder(
     payload: CreateOrderDto,
@@ -34,7 +41,7 @@ export class OrderService {
 
     for (const [sessionKey, requestedSeats] of groupedBySession) {
       const [filmId, sessionId] = sessionKey.split('|');
-      const result = await this.filmRepository.reserveTakenSeats(
+      const result = await this.filmsRepository.reserveTakenSeats(
         filmId,
         sessionId,
         requestedSeats,

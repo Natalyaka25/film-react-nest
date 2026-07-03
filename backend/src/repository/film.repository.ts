@@ -1,103 +1,55 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { Model, Schema } from 'mongoose';
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Film } from '../entities/film.entity';
+import { Schedule } from '../entities/schedule.entity';
 import { FilmDto, ScheduleDto } from '../films/dto/films.dto';
-
-type FilmDocument = {
-  id: string;
-  rating: number;
-  director: string;
-  tags: string[];
-  image: string;
-  cover: string;
-  title: string;
-  about: string;
-  description: string;
-  schedule: ScheduleSubdocument[];
-};
-
-type ScheduleSubdocument = {
-  id: string;
-  daytime: Date;
-  hall: number;
-  rows: number;
-  seats: number;
-  price: number;
-  taken: string[];
-};
-
-const scheduleSchema = new Schema<ScheduleSubdocument>(
-  {
-    id: { type: String, required: true },
-    daytime: { type: Date, required: true },
-    hall: { type: Number, required: true },
-    rows: { type: Number, required: true },
-    seats: { type: Number, required: true },
-    price: { type: Number, required: true },
-    taken: { type: [String], required: true, default: [] },
-  },
-  { _id: false },
-);
-
-export const filmSchema = new Schema<FilmDocument>(
-  {
-    id: { type: String, required: true, unique: true },
-    rating: { type: Number, required: true },
-    director: { type: String, required: true },
-    tags: { type: [String], required: true, default: [] },
-    image: { type: String, required: true },
-    cover: { type: String, required: true },
-    title: { type: String, required: true },
-    about: { type: String, required: true },
-    description: { type: String, required: true },
-    schedule: { type: [scheduleSchema], required: true, default: [] },
-  },
-  {
-    versionKey: false,
-  },
-);
+import { FilmsRepository } from './films.repository';
 
 @Injectable()
-export class FilmRepository {
+export class FilmRepository implements FilmsRepository {
   constructor(
-    @Inject('FILM_MODEL')
-    private readonly filmModel: Model<FilmDocument>,
+    @InjectRepository(Film)
+    private readonly filmRepository: Repository<Film>,
+    @InjectRepository(Schedule)
+    private readonly scheduleRepository: Repository<Schedule>,
   ) {}
 
   async getFilms(): Promise<FilmDto[]> {
-    const films = await this.filmModel.find({}, { _id: 0 }).lean().exec();
+    const films = await this.filmRepository.find({
+      relations: ['schedules'],
+    });
+
     return films.map(this.toFilmDto);
   }
 
   async getScheduleByFilmId(filmId: string): Promise<ScheduleDto[] | null> {
-    const film = await this.filmModel
-      .findOne({ id: filmId }, { _id: 0, schedule: 1 })
-      .lean()
-      .exec();
+    const film = await this.filmRepository.findOne({ where: { id: filmId } });
 
     if (!film) {
       return null;
     }
 
-    return film.schedule.map(this.toScheduleDto);
+    const schedules = await this.scheduleRepository.find({
+      where: { filmId },
+    });
+
+    return schedules.map(this.toScheduleDto);
   }
 
   async getScheduleByFilmAndSession(
     filmId: string,
     sessionId: string,
   ): Promise<ScheduleDto | null> {
-    const film = await this.filmModel
-      .findOne(
-        { id: filmId, 'schedule.id': sessionId },
-        { _id: 0, schedule: { $elemMatch: { id: sessionId } } },
-      )
-      .lean()
-      .exec();
+    const schedule = await this.scheduleRepository.findOne({
+      where: { id: sessionId, filmId },
+    });
 
-    if (!film || film.schedule.length === 0) {
+    if (!schedule) {
       return null;
     }
 
-    return this.toScheduleDto(film.schedule[0]);
+    return this.toScheduleDto(schedule);
   }
 
   async reserveTakenSeats(
@@ -105,52 +57,60 @@ export class FilmRepository {
     sessionId: string,
     takenSeats: string[],
   ): Promise<'reserved' | 'not_found' | 'conflict'> {
-    const sessionExists = await this.filmModel
-      .exists({ id: filmId, 'schedule.id': sessionId })
-      .exec();
+    const schedule = await this.scheduleRepository.findOne({
+      where: { id: sessionId, filmId },
+    });
 
-    if (!sessionExists) {
+    if (!schedule) {
       return 'not_found';
     }
 
-    const result = await this.filmModel
-      .updateOne(
-        {
-          id: filmId,
-          schedule: {
-            $elemMatch: {
-              id: sessionId,
-              taken: { $nin: takenSeats },
-            },
-          },
-        },
-        { $addToSet: { 'schedule.$.taken': { $each: takenSeats } } },
-      )
-      .exec();
+    const currentTaken = this.parseTaken(schedule.taken);
+    const hasTakenSeat = takenSeats.some((seat) => currentTaken.includes(seat));
 
-    return result.modifiedCount > 0 ? 'reserved' : 'conflict';
+    if (hasTakenSeat) {
+      return 'conflict';
+    }
+
+    const newTaken = this.serializeTaken([...currentTaken, ...takenSeats]);
+    const result = await this.scheduleRepository.update(
+      { id: sessionId, filmId, taken: schedule.taken },
+      { taken: newTaken },
+    );
+
+    return result.affected ? 'reserved' : 'conflict';
   }
 
-  private toFilmDto = (film: FilmDocument): FilmDto => ({
+  private toFilmDto = (film: Film): FilmDto => ({
     id: film.id,
     rating: film.rating,
     director: film.director,
-    tags: film.tags,
+    tags: [film.tags],
     image: film.image,
     cover: film.cover,
     title: film.title,
     about: film.about,
     description: film.description,
-    schedule: film.schedule.map(this.toScheduleDto),
+    schedule: (film.schedules ?? []).map(this.toScheduleDto),
   });
 
-  private toScheduleDto = (schedule: ScheduleSubdocument): ScheduleDto => ({
+  private toScheduleDto = (schedule: Schedule): ScheduleDto => ({
     id: schedule.id,
     daytime: new Date(schedule.daytime).toISOString(),
     hall: schedule.hall,
     rows: schedule.rows,
     seats: schedule.seats,
     price: schedule.price,
-    taken: schedule.taken,
+    taken: this.parseTaken(schedule.taken),
   });
+
+  private parseTaken = (taken: string): string[] => {
+    if (!taken) {
+      return [];
+    }
+
+    return taken.split(',').filter(Boolean);
+  };
+
+  private serializeTaken = (seats: string[]): string => seats.join(',');
 }
