@@ -10,26 +10,25 @@ import { Schedule } from '../entities/schedule.entity';
       imports: [ConfigModule],
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
-        const driver = configService.get<string>('DATABASE_DRIVER', 'postgres');
+        const driver = configService.getOrThrow<string>('DATABASE_DRIVER');
 
         if (driver !== 'postgres') {
           throw new Error(`Unsupported DATABASE_DRIVER: ${driver}`);
         }
 
-        const username = configService.get<string>('DATABASE_USERNAME', 'prac');
-        const password = configService.get<string>('DATABASE_PASSWORD', 'prac');
-        const databaseUrl = configService.get<string>(
-          'DATABASE_URL',
-          'postgres://localhost:5432/prac',
-        );
+        const username = configService.getOrThrow<string>('DATABASE_USERNAME');
+        const password = configService.getOrThrow<string>('DATABASE_PASSWORD');
+        const host = configService.getOrThrow<string>('DATABASE_HOST');
+        const port = Number(configService.getOrThrow<string>('DATABASE_PORT'));
+        const database = configService.getOrThrow<string>('DATABASE_NAME');
 
         return {
           type: 'postgres' as const,
-          host: 'localhost',
-          port: 5432,
+          host,
+          port,
           username,
           password,
-          database: databaseUrl.split('/').pop() ?? 'prac',
+          database,
           entities: [Film, Schedule],
           synchronize: false,
         };
