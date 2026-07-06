@@ -1,0 +1,109 @@
+services:
+  database:
+    image: postgres:16-alpine
+    container_name: film-database
+    restart: always
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${DATABASE_USERNAME}
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD}
+      POSTGRES_DB: ${DATABASE_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/test/docker.init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    networks:
+      - film-network
+    healthcheck:
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -U "$$POSTGRES_USER" -d "$$POSTGRES_DB"',
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: ghcr.io/natalyaka25/film-react-nest-backend:latest
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: film-backend
+    restart: always
+    env_file:
+      - .env
+    environment:
+      DATABASE_HOST: database
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - film-network
+
+  frontend:
+    image: ghcr.io/natalyaka25/film-react-nest-frontend:latest
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL}
+        VITE_CDN_URL: ${VITE_CDN_URL}
+    container_name: film-frontend
+    restart: always
+    volumes:
+      - frontend_dist:/usr/share/nginx/html
+    healthcheck:
+      test: ['CMD-SHELL', 'test -f /usr/share/nginx/html/index.html']
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    networks:
+      - film-network
+
+  nginx:
+    image: ghcr.io/natalyaka25/film-react-nest-nginx:latest
+    build:
+      context: ./nginx
+      dockerfile: Dockerfile
+    container_name: film-nginx
+    restart: always
+    ports:
+      - '80:80'
+    volumes:
+      - frontend_dist:/usr/share/nginx/html:ro
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    networks:
+      - film-network
+
+  pgadmin:
+    image: dpage/pgadmin4:8
+    container_name: film-pgadmin
+    restart: always
+    env_file:
+      - .env
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD}
+    ports:
+      - '8080:80'
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      database:
+        condition: service_healthy
+    networks:
+      - film-network
+
+networks:
+  film-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+  frontend_dist:
